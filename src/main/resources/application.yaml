@@ -8,3 +8,24 @@ spring:
   threads:
     virtual:
       enabled: true
+  mvc:
+    problemdetails:
+      enabled: true
+
+carteira:
+  jwt:
+    # Local default only. Production sets CARTEIRA_JWT_SECRET (32+ bytes).
+    secret: ${CARTEIRA_JWT_SECRET:local-dev-secret-change-me-0123456789abcdef}
+    ttl: 1h
+
+springdoc:
+  swagger-ui:
+    path: /docs
+  api-docs:
+    path: /v3/api-docs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
