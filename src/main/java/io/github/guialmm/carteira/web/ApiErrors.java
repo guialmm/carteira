@@ -1,6 +1,7 @@
 package io.github.guialmm.carteira.web;
 
 import io.github.guialmm.carteira.auth.AuthException;
+import io.github.guialmm.carteira.pix.PixKeyException;
 import io.github.guialmm.carteira.transfer.TransferException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -26,6 +27,17 @@ class ApiErrors {
         HttpStatus status = switch (e.getReason()) {
             case EMAIL_TAKEN -> HttpStatus.CONFLICT;
             case BAD_CREDENTIALS -> HttpStatus.UNAUTHORIZED;
+        };
+        return problem(status, e.getReason().name(), e.getMessage());
+    }
+
+    @ExceptionHandler
+    ProblemDetail pix(PixKeyException e) {
+        HttpStatus status = switch (e.getReason()) {
+            case INVALID_KEY -> HttpStatus.BAD_REQUEST;
+            case KEY_NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case KEY_TAKEN -> HttpStatus.CONFLICT;
+            case KEY_LIMIT_REACHED, EMAIL_NOT_YOURS -> HttpStatus.UNPROCESSABLE_CONTENT;
         };
         return problem(status, e.getReason().name(), e.getMessage());
     }
