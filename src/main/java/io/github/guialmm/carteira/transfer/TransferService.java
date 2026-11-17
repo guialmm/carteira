@@ -7,6 +7,7 @@ import static io.github.guialmm.carteira.transfer.TransferException.Reason.INVAL
 import static io.github.guialmm.carteira.transfer.TransferException.Reason.SAME_ACCOUNT;
 
 import io.github.guialmm.carteira.account.Account;
+import io.github.guialmm.carteira.account.AccountKind;
 import io.github.guialmm.carteira.account.AccountRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -72,6 +73,11 @@ public class TransferService {
         Account second = lock(sourceFirst ? destinationId : sourceId);
         Account source = sourceFirst ? first : second;
         Account destination = sourceFirst ? second : first;
+
+        // Only customer accounts can receive a transfer; the funding account is internal.
+        if (kind == TransferKind.TRANSFER && destination.getKind() != AccountKind.CUSTOMER) {
+            throw new TransferException(ACCOUNT_NOT_FOUND, "Account not found: " + destinationId);
+        }
 
         String requestHash = hash(kind, sourceId, destinationId, amountCents, description);
         var previous = transfers.findByInitiatorAccountIdAndIdempotencyKey(initiatorId, idempotencyKey);
