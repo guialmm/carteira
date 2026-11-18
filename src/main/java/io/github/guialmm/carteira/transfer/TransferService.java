@@ -9,6 +9,10 @@ import static io.github.guialmm.carteira.transfer.TransferException.Reason.SAME_
 import io.github.guialmm.carteira.account.Account;
 import io.github.guialmm.carteira.account.AccountKind;
 import io.github.guialmm.carteira.account.AccountRepository;
+import io.github.guialmm.carteira.events.TransferCompleted;
+import io.github.guialmm.carteira.outbox.OutboxWriter;
+import io.github.guialmm.carteira.user.User;
+import io.github.guialmm.carteira.user.UserRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -37,11 +41,16 @@ public class TransferService {
     private final AccountRepository accounts;
     private final TransferRepository transfers;
     private final LedgerEntryRepository entries;
+    private final UserRepository users;
+    private final OutboxWriter outbox;
 
-    public TransferService(AccountRepository accounts, TransferRepository transfers, LedgerEntryRepository entries) {
+    public TransferService(AccountRepository accounts, TransferRepository transfers, LedgerEntryRepository entries,
+            UserRepository users, OutboxWriter outbox) {
         this.accounts = accounts;
         this.transfers = transfers;
         this.entries = entries;
+        this.users = users;
+        this.outbox = outbox;
     }
 
     @Transactional
@@ -99,7 +108,17 @@ public class TransferService {
         long destinationBalance = destination.apply(amountCents);
         entries.save(new LedgerEntry(transfer.getId(), sourceId, -amountCents, sourceBalance, transfer.getCreatedAt()));
         entries.save(new LedgerEntry(transfer.getId(), destinationId, amountCents, destinationBalance, transfer.getCreatedAt()));
+
+        var event = new TransferCompleted(UUID.randomUUID(), transfer.getId(), kind.name(),
+                sourceId, nameOf(source), destinationId, nameOf(destination),
+                amountCents, description, transfer.getCreatedAt());
+        outbox.append(event.eventId(), TransferCompleted.TYPE, transfer.getId(), event);
         return new TransferResult(transfer, false);
+    }
+
+    private String nameOf(Account account) {
+        return account.getOwnerId() == null ? null
+                : users.findById(account.getOwnerId()).map(User::getName).orElse(null);
     }
 
     private Account lock(UUID id) {
