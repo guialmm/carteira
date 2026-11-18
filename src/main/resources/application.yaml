@@ -8,6 +8,9 @@ spring:
   threads:
     virtual:
       enabled: true
+  rabbitmq:
+    # The publisher waits for the broker to confirm each message before marking it sent.
+    publisher-confirm-type: simple
   mvc:
     problemdetails:
       enabled: true
@@ -17,6 +20,10 @@ carteira:
     # Local default only. Production sets CARTEIRA_JWT_SECRET (32+ bytes).
     secret: ${CARTEIRA_JWT_SECRET:local-dev-secret-change-me-0123456789abcdef}
     ttl: 1h
+  outbox:
+    publisher:
+      enabled: true
+      interval: 500ms
 
 springdoc:
   swagger-ui:
