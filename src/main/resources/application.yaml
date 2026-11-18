@@ -11,6 +11,15 @@ spring:
   rabbitmq:
     # The publisher waits for the broker to confirm each message before marking it sent.
     publisher-confirm-type: simple
+    listener:
+      simple:
+        # A message that keeps failing goes to the dead-letter queue instead of looping forever.
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 200ms
+          multiplier: 2
   mvc:
     problemdetails:
       enabled: true
