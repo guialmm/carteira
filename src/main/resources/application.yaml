@@ -15,6 +15,10 @@ spring:
       simple:
         # A message that keeps failing goes to the dead-letter queue instead of looping forever.
         default-requeue-rejected: false
+        # Notifications do not depend on order and dedupe on a primary key, so they can run in parallel.
+        concurrency: 4
+        max-concurrency: 8
+        prefetch: 50
         retry:
           enabled: true
           max-attempts: 3

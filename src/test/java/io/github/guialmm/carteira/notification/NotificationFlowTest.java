@@ -40,6 +40,7 @@ class NotificationFlowTest {
     @Autowired RabbitTemplate rabbit;
     @Autowired JsonMapper json;
     @Autowired JdbcClient jdbc;
+    @Autowired NotificationService service;
 
     @Test
     void aTransferBecomesNotificationsForBothSides() throws Exception {
@@ -67,12 +68,34 @@ class NotificationFlowTest {
         send(event);
         send(event); // the broker or the publisher delivered it twice
 
-        // The listener handles one message at a time, in order: once this marker is in,
-        // both copies above have already been processed.
-        UUID marker = UUID.randomUUID();
-        send(depositEvent(marker, 1));
-        await().atMost(Duration.ofSeconds(10)).until(() -> count(marker) == 1);
+        // Consumers run in parallel, so both copies may race: exactly one notification must
+        // appear, and stay alone.
+        await().atMost(Duration.ofSeconds(10)).until(() -> count(account) == 1);
+        await().during(Duration.ofSeconds(1)).atMost(Duration.ofSeconds(3)).until(() -> count(account) == 1);
+    }
 
+    @Test
+    void concurrentCopiesOfTheSameEventAreHandledOnce() throws Exception {
+        UUID account = UUID.randomUUID();
+        var event = depositEvent(account, 700);
+        try (var pool = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            var start = new java.util.concurrent.CountDownLatch(1);
+            var results = new java.util.ArrayList<java.util.concurrent.Future<Boolean>>();
+            for (int i = 0; i < 10; i++) {
+                results.add(pool.submit(() -> {
+                    start.await();
+                    return service.handle(event);
+                }));
+            }
+            start.countDown();
+            long handled = 0;
+            for (var r : results) {
+                if (r.get()) {
+                    handled++;
+                }
+            }
+            assertThat(handled).isEqualTo(1);
+        }
         assertThat(count(account)).isEqualTo(1);
     }
 
