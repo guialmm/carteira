@@ -23,7 +23,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>Rows are claimed with {@code FOR UPDATE SKIP LOCKED}, so several API instances can run this
  * at once without sending the same event twice in parallel. A row is marked published only after
- * the broker confirms it. If the app dies between the confirm and the update, the event goes out
+ * the broker confirms it (one confirm per batch). If the app dies between the confirm and the update, the event goes out
  * again on the next run: delivery is at-least-once, and consumers dedupe by message id.
  */
 @Component
@@ -31,7 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 class OutboxPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxPublisher.class);
-    static final int BATCH = 50;
+    static final int BATCH = 200;
 
     private record Pending(UUID id, String type, String payload) {
     }
@@ -68,28 +68,32 @@ class OutboxPublisher {
                     .query((rs, i) -> new Pending(rs.getObject("id", UUID.class), rs.getString("type"),
                             rs.getString("payload")))
                     .list();
-            int confirmed = 0;
-            for (Pending event : batch) {
-                try {
-                    rabbit.invoke(ops -> {
-                        ops.send(EventsTopology.EXCHANGE, event.type(), toMessage(event));
-                        ops.waitForConfirmsOrDie(5_000);
-                        return null;
-                    });
-                } catch (AmqpException e) {
-                    jdbc.sql("update outbox_events set attempts = attempts + 1, last_error = :err where id = :id")
-                            .param("err", truncate(e.getMessage()))
-                            .param("id", event.id())
-                            .update();
-                    log.warn("Outbox event {} not published, will retry: {}", event.id(), e.getMessage());
-                    break; // the broker is likely down; keep order and try again on the next tick
-                }
-                jdbc.sql("update outbox_events set published_at = now(), attempts = attempts + 1 where id = :id")
-                        .param("id", event.id())
-                        .update();
-                confirmed++;
+            if (batch.isEmpty()) {
+                return 0;
             }
-            return confirmed;
+            List<UUID> ids = batch.stream().map(Pending::id).toList();
+            try {
+                // One confirm round-trip per batch instead of per message: same guarantee,
+                // because nothing is marked published unless the whole batch was confirmed.
+                rabbit.invoke(ops -> {
+                    for (Pending event : batch) {
+                        ops.send(EventsTopology.EXCHANGE, event.type(), toMessage(event));
+                    }
+                    ops.waitForConfirmsOrDie(10_000);
+                    return null;
+                });
+            } catch (AmqpException e) {
+                jdbc.sql("update outbox_events set attempts = attempts + 1, last_error = :err where id in (:ids)")
+                        .param("err", truncate(e.getMessage()))
+                        .param("ids", ids)
+                        .update();
+                log.warn("{} outbox events not published, will retry: {}", ids.size(), e.getMessage());
+                return 0; // the broker is likely down; the whole batch goes again on the next tick
+            }
+            jdbc.sql("update outbox_events set published_at = now(), attempts = attempts + 1 where id in (:ids)")
+                    .param("ids", ids)
+                    .update();
+            return batch.size();
         });
         return sent == null ? 0 : sent;
     }
