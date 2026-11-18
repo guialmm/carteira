@@ -1,0 +1,38 @@
+# Full stack locally: docker compose up --build
+# API on http://localhost:8085 (Swagger at /docs), RabbitMQ panel on http://localhost:15673 (guest/guest)
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: carteira
+      POSTGRES_USER: carteira
+      POSTGRES_PASSWORD: carteira
+    volumes: [db_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carteira -d carteira"]
+      interval: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    ports: ["15673:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      retries: 20
+
+  api:
+    build: .
+    ports: ["8085:8080"]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/carteira
+      SPRING_DATASOURCE_USERNAME: carteira
+      SPRING_DATASOURCE_PASSWORD: carteira
+      SPRING_RABBITMQ_HOST: rabbitmq
+      CARTEIRA_JWT_SECRET: compose-only-secret-not-for-production-0123456789
+    depends_on:
+      db: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+volumes:
+  db_data:
