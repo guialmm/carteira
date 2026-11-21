@@ -1,7 +1,8 @@
 variable "region" {
-  description = "us-east-1 is the cheapest region; São Paulo costs roughly 50% more."
-  type        = string
-  default     = "us-east-1"
+  # Ohio has the same prices as N. Virginia (the cheapest); São Paulo costs roughly 50% more.
+  # It is also the only region the AWS organization of this account allows.
+  type    = string
+  default = "us-east-2"
 }
 
 variable "project" {
@@ -27,7 +28,7 @@ variable "db_instance_class" {
 }
 
 variable "budget_limit_usd" {
-  # On-demand in us-east-1 this stack costs about US$ 32/month: t4g.small ~12, db.t4g.micro ~12,
+  # On-demand in us-east-2 this stack costs about US$ 32/month: t4g.small ~12, db.t4g.micro ~12,
   # storage ~4, public IPv4 ~4. New-account credits cover it for months. The alarm sits a bit
   # above the expected bill, so an e-mail means something is off.
   description = "Monthly cost alarm. An e-mail goes out at 50% of real spend and when the forecast passes 100%."
