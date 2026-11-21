@@ -1,0 +1,39 @@
+# Production stack on the EC2 server. Postgres is RDS; everything here is stateless except
+# RabbitMQ's volume. Memory limits matter: the server has 2 GB and the JVM sizes its heap
+# from the container limit.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    mem_limit: 96m
+    depends_on: [api]
+
+  rabbitmq:
+    image: rabbitmq:4-alpine
+    restart: unless-stopped
+    volumes: [rabbitmq_data:/var/lib/rabbitmq]
+    mem_limit: 448m
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 12
+
+  api:
+    image: ${IMAGE}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SPRING_RABBITMQ_HOST: rabbitmq
+    mem_limit: 900m
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+
+volumes:
+  caddy_data:
+  rabbitmq_data:
