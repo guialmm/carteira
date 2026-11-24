@@ -16,6 +16,15 @@ variable "github_repository" {
   default     = "guialmm/carteira"
 }
 
+variable "github_oidc_subject_prefix" {
+  # GitHub now issues immutable subjects with owner and repository ids, so a renamed or
+  # recreated repository with the same name cannot assume the role. Read the value with:
+  #   gh api repos/OWNER/REPO/actions/oidc/customization/sub
+  description = "Immutable OIDC subject prefix of the repository."
+  type        = string
+  default     = "repo:guialmm@153012160/carteira@1460853477"
+}
+
 variable "instance_type" {
   description = "ARM (Graviton). 2 GB fits the API, RabbitMQ and Caddy."
   type        = string
