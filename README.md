@@ -1,6 +1,11 @@
 # Carteira
 
 [![CI](https://github.com/guialmm/carteira/actions/workflows/ci.yml/badge.svg)](https://github.com/guialmm/carteira/actions/workflows/ci.yml)
+[![Deploy](https://github.com/guialmm/carteira/actions/workflows/deploy.yml/badge.svg)](https://github.com/guialmm/carteira/actions/workflows/deploy.yml)
+
+**[API no ar, com Swagger → 3-128-146-167.sslip.io/docs](https://3-128-146-167.sslip.io/docs)** — crie uma conta em
+`/api/auth/register`, entre em `/api/auth/login`, clique em **Authorize** e cole o token. O
+depósito de demonstração coloca até R$ 1.000,00 de dinheiro fictício na conta.
 
 API de uma carteira digital com **transferências estilo Pix**: conta, depósito, transferência
 por conta ou por chave Pix, extrato e notificações. O saldo vem de um **livro-razão de partidas
@@ -9,7 +14,8 @@ pedidos simultâneos na mesma conta**, e os eventos saem para o **RabbitMQ por u
 transacional**.
 
 Java 25 + Spring Boot 4 + PostgreSQL + RabbitMQ. Testes com JUnit 5 e Testcontainers (bancos
-e filas de verdade, sem mocks), teste de carga com k6 e CI no GitHub Actions.
+e filas de verdade, sem mocks), teste de carga com k6, CI no GitHub Actions e deploy na AWS
+(EC2, RDS, ECR) com a infraestrutura toda em Terraform.
 
 ## Contexto
 
@@ -231,6 +237,50 @@ curl -s -X POST $API/api/pix/transfers -H "Authorization: Bearer $TOKEN" \
   -d '{"key":"529.982.247-25","amountCents":2590,"description":"café"}'
 ```
 
+## Deploy na AWS
+
+Toda a infraestrutura está em [`infra/terraform`](infra/terraform): um `terraform apply` cria tudo
+e um `terraform destroy` apaga tudo.
+
+```mermaid
+flowchart LR
+  GH[GitHub Actions] -->|OIDC: credencial temporária| AWS
+  GH -->|imagem ARM| ECR[(ECR)]
+  GH -->|SSM Run Command| EC2
+  subgraph AWS [AWS us-east-2]
+    subgraph pub [sub-rede pública]
+      EC2[EC2 t4g.small<br/>Caddy + API + RabbitMQ]
+    end
+    subgraph priv [sub-rede privada]
+      RDS[(RDS PostgreSQL 17)]
+    end
+    SSM[Parameter Store<br/>senhas e JWT]
+  end
+  U[Internet] -->|HTTPS| EC2
+  EC2 --> RDS
+  EC2 -.->|lê no deploy| SSM
+  EC2 -.->|baixa a imagem| ECR
+```
+
+- **Sem chaves da AWS no GitHub.** O GitHub Actions troca um token OIDC por uma credencial que
+  dura minutos. A role só aceita a branch `main` deste repositório, identificada pelos ids
+  numéricos do dono e do repositório. Assim, um repositório recriado com o mesmo nome não
+  consegue fazer deploy.
+- **Sem SSH.** O servidor não tem a porta 22 aberta. O deploy chega pelo SSM Run Command: o
+  servidor baixa a imagem nova do ECR, lê os segredos do Parameter Store e só dá o deploy por
+  concluído quando a API responde saudável. Depois, o workflow confere a API pela internet.
+- **Banco fora da internet.** O RDS fica numa sub-rede privada, e só o servidor da aplicação
+  consegue chegar na porta 5432. As senhas são geradas pelo Terraform e nunca aparecem no código.
+- **HTTPS sem comprar domínio.** O [sslip.io](https://sslip.io) transforma o IP num nome
+  (`3-128-146-167.sslip.io`), e o Caddy pega e renova sozinho o certificado do Let's Encrypt.
+- **Imagem ARM nativa.** A imagem é construída num runner ARM do GitHub, porque o servidor é
+  Graviton (mais barato que o equivalente x86).
+- **Custo e alerta.** Cerca de US$ 32 por mês no preço cheio. Um alerta da AWS avisa por e-mail se
+  o mês for passar de US$ 40.
+
+O caminho de cada mudança: push na `main` → CI (testes com Testcontainers e build da imagem) →
+deploy (imagem ARM no ECR, atualização no servidor, conferência pela internet).
+
 ## Endpoints
 
 | Método | Rota | O que faz |
@@ -261,10 +311,13 @@ src/main/java/io/github/guialmm/carteira/
 └── web/            endpoints da carteira, extrato e erros RFC 9457
 src/main/resources/db/migration/   migrações Flyway (V1 a V4)
 load/                              teste de carga (k6)
+infra/terraform/                   infraestrutura na AWS
+deploy/                            compose de produção, Caddy e script de deploy
 ```
 
 ## Stack
 
 Java 25 · Spring Boot 4.1 (Web MVC, Data JPA, Security com OAuth2 Resource Server, AMQP) ·
 Hibernate 7 · PostgreSQL 17 · Flyway · RabbitMQ 4 · JUnit 5 · Testcontainers · Awaitility ·
-k6 · Docker · GitHub Actions · springdoc-openapi
+k6 · Docker · GitHub Actions · springdoc-openapi · AWS (EC2, RDS, ECR, SSM, IAM com OIDC) ·
+Terraform · Caddy
